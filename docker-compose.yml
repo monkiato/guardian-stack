@@ -1,0 +1,98 @@
+version: '3.7'
+
+services:
+
+  traefik:
+      image: traefik:2.2 # The official Traefik docker image
+      restart: always
+      ports:
+          - "80:80"     # The HTTP port
+          - "443:443"
+      volumes:
+          - /var/run/docker.sock:/var/run/docker.sock # So that Traefik can listen to the Docker events
+      labels:
+          - "traefik.enable=true"
+          - "traefik.backend.loadbalancer.sticky=true"
+      command:
+          - "--api"
+          - "--log"
+          - "--entrypoints.web.address=:80"
+          # - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+          # - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+          # - "--entrypoints.websecure.address=:443"
+          # - "--entrypoints.websecure.http.tls.certresolver=myresolver"
+          - "--providers.docker"
+          - "--providers.docker.watch"
+          # - "--providers.docker.swarmmode"
+          # - "--providers.docker.exposedbydefault=false"
+          # - "--certificatesresolvers.myresolver.acme.email=rjcollavo@gmail.com"
+          # - "--certificatesresolvers.myresolver.acme.storage=/certificates/acme.json"
+          # - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+
+  auth-login:
+    image: auth-login
+    restart: always
+    labels:
+      - "traefik.http.routers.auth-login.rule=Host(`auth-login.my.computer`)"
+      # - "traefik.docker.network=traefik_default"
+      - "traefik.enable=true"
+      - "traefik.http.services.auth-login.loadbalancer.server.port=80"
+
+  guardian-admin-ui:
+    image: guardian-admin-ui
+    restart: always
+    labels:
+      - "traefik.http.routers.guardian-admin-ui.rule=Host(`admin-ui.my.computer`)"
+      # - "traefik.docker.network=traefik_default"
+      - "traefik.enable=true"
+      - "traefik.http.services.guardian-admin-ui.loadbalancer.server.port=3000"
+      - "traefik.http.middlewares.guardian-admin-ui.forwardauth.address=http://login.my.computer/auth/validate"
+      - "traefik.http.routers.guardian-admin-ui.middlewares=guardian-admin-ui@docker"
+
+  guardian-admin:
+    image: guardian-admin
+    restart: always
+    environment:
+      DB_HOST: pg
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASS: changeme
+    depends_on:
+      - pg
+    labels:
+      - "traefik.http.routers.guardian-admin.rule=Host(`admin.my.computer`)"
+      # - "traefik.docker.network=traefik_default"
+      - "traefik.enable=true"
+      - "traefik.http.services.guardian-admin.loadbalancer.server.port=8080"
+
+  guardian:
+    image: guardian:0.10
+    restart: always
+    environment:
+      REDIRECT_URL: http://auth-login.my.computer/
+      DOMAIN_NAME: 'my.computer'
+      SECRET_KEY: 'my-secret-key'
+      DB_HOST: pg
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASS: changeme
+    depends_on:
+      - pg
+    labels:
+      - "traefik.http.routers.guardian.rule=Host(`login.my.computer`)"
+      # - "traefik.docker.network=traefik_default"
+      - "traefik.enable=true"
+      - "traefik.http.services.guardian.loadbalancer.server.port=8080"
+
+
+  pg:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: changeme
+      PGDATA: /data/postgres
+    volumes:
+       - ./.docker/postgres/data:/data/postgres
+    restart: always
